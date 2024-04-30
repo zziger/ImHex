@@ -214,8 +214,9 @@ namespace hex::plugin::builtin {
 
     void ViewPatternEditor::drawContent() {
         auto provider = ImHexApi::Provider::get();
+        auto parentProvider = ImHexApi::Provider::getParent();
 
-        if (ImHexApi::Provider::isValid() && provider->isAvailable()) {
+        if (ImHexApi::Provider::isValid() && provider->isAvailable() && parentProvider->isAvailable()) {
             static float height = 0;
             static bool dragging = false;
 
@@ -430,19 +431,19 @@ namespace hex::plugin::builtin {
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("hex.builtin.view.pattern_editor.env_vars"_lang)) {
-                    this->drawEnvVars(settingsSize, *m_envVarEntries);
+                    this->drawEnvVars(settingsSize, m_envVarEntries.get(parentProvider));
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("hex.builtin.view.pattern_editor.settings"_lang)) {
-                    this->drawVariableSettings(settingsSize, *m_patternVariables);
+                    this->drawVariableSettings(settingsSize, m_patternVariables.get(parentProvider));
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("hex.builtin.view.pattern_editor.sections"_lang)) {
-                    this->drawSectionSelector(settingsSize, *m_sections);
+                    this->drawSectionSelector(settingsSize, m_sections.get(parentProvider));
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("hex.builtin.view.pattern_editor.virtual_files"_lang)) {
-                    this->drawVirtualFiles(settingsSize, *m_virtualFiles);
+                    this->drawVirtualFiles(settingsSize, m_virtualFiles.get(parentProvider));
                     ImGui::EndTabItem();
                 }
                 if (ImGui::BeginTabItem("hex.builtin.view.pattern_editor.debugger"_lang)) {
@@ -473,7 +474,7 @@ namespace hex::plugin::builtin {
                 } else {
                     if (ImGuiExt::IconButton(ICON_VS_DEBUG_START, ImGuiExt::GetCustomColorVec4(ImGuiCustomCol_ToolbarGreen)) || m_triggerEvaluation) {
                         m_triggerEvaluation = false;
-                        this->evaluatePattern(m_textEditor.GetText(), provider);
+                        this->evaluatePattern(m_textEditor.GetText(), parentProvider);
                     }
                 }
 
@@ -548,7 +549,7 @@ namespace hex::plugin::builtin {
 
             if (m_textEditor.IsTextChanged()) {
                 m_hasUnevaluatedChanges = true;
-                ImHexApi::Provider::markDirty();
+                ImHexApi::Provider::markParentDirty();
             }
 
             if (m_hasUnevaluatedChanges && m_runningEvaluators == 0 && m_runningParsers == 0) {
@@ -557,8 +558,8 @@ namespace hex::plugin::builtin {
                 auto code = m_textEditor.GetText();
                 EventPatternEditorChanged::post(code);
 
-                TaskManager::createBackgroundTask("Pattern Parsing", [this, code, provider](auto &){
-                    this->parsePattern(code, provider);
+                TaskManager::createBackgroundTask("Pattern Parsing", [this, code, parentProvider](auto &){
+                    this->parsePattern(code, parentProvider);
 
                     if (m_runAutomatically)
                         m_triggerAutoEvaluate = true;
@@ -566,7 +567,7 @@ namespace hex::plugin::builtin {
             }
 
             if (m_triggerAutoEvaluate.exchange(false)) {
-                this->evaluatePattern(m_textEditor.GetText(), provider);
+                this->evaluatePattern(m_textEditor.GetText(), parentProvider);
             }
         }
 
@@ -1110,51 +1111,60 @@ namespace hex::plugin::builtin {
                     ImGuiExt::TextFormatted("{} | 0x{:02X}", hex::toByteString(section.data.size()), section.data.size());
                     ImGui::TableNextColumn();
                     if (ImGuiExt::DimmedIconButton(ICON_VS_OPEN_PREVIEW, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
-                        auto dataProvider = std::make_shared<prv::MemoryProvider>(section.data);
-                        auto hexEditor = auto(m_sectionHexEditor);
+                        auto sectionProvider = std::make_unique<prv::MemoryProvider>(section.data, "Section: " + section.name);
+                        sectionProvider->setParent(ImHexApi::Provider::get());
+                        auto sectionProviderPtr = sectionProvider.get();
+                        ImHexApi::Provider::add(std::move(sectionProvider));
+                        ContentRegistry::PatternLanguage::setSection(id, sectionProviderPtr);
 
-                        hexEditor.setBackgroundHighlightCallback([this, id, &runtime](u64 address, const u8 *, size_t) -> std::optional<color_t> {
-                            if (m_runningEvaluators != 0)
-                                return std::nullopt;
-                            if (!ImHexApi::Provider::isValid())
-                                return std::nullopt;
-
-                            std::optional<ImColor> color;
-                            for (const auto &pattern : runtime.getPatternsAtAddress(address, id)) {
-                                if (pattern->getVisibility() != pl::ptrn::Visibility::Visible)
-                                    continue;
-
-                                if (color.has_value())
-                                    color = ImAlphaBlendColors(*color, pattern->getColor());
-                                else
-                                    color = pattern->getColor();
-                            }
-
-                            return color;
-                        });
-
-                        auto patternProvider = ImHexApi::Provider::get();
-
-
-                        m_sectionWindowDrawer[patternProvider] = [this, id, patternProvider, dataProvider, hexEditor, patternDrawer = std::make_shared<ui::PatternDrawer>(), &runtime] mutable {
-                            hexEditor.setProvider(dataProvider.get());
-                            hexEditor.draw(480_scaled);
-                            patternDrawer->setSelectionCallback([&](const pl::ptrn::Pattern *pattern) {
-                                hexEditor.setSelection(Region { pattern->getOffset(), pattern->getSize() });
-                            });
-
-                            const auto &patterns = [&, this] -> const auto& {
-                                if (patternProvider->isReadable() && *m_executionDone) {
-                                    return runtime.getPatterns(id);
-                                } else {
-                                    static const std::vector<std::shared_ptr<pl::ptrn::Pattern>> empty;
-                                    return empty;
-                                }
-                            }();
-
-                            if (*m_executionDone)
-                                patternDrawer->draw(patterns, &runtime, 150_scaled);
-                        };
+                        // m_sections.get(sectionProviderPtr)
+                        // auto& sectionRuntime = ContentRegistry::PatternLanguage::getRuntime(sectionProviderPtr);
+                        // auto sectionProvider = ImHexApi::Provider::add<prv::SectionProvider>(section.data, "Section: " + section.name, ImHexApi::Provider::get(), id);
+                        // auto dataProvider = std::make_shared<prv::MemoryProvider>(section.data);
+                        // auto hexEditor = auto(m_sectionHexEditor);
+                        //
+                        // hexEditor.setBackgroundHighlightCallback([this, id, &runtime](u64 address, const u8 *, size_t) -> std::optional<color_t> {
+                        //     if (m_runningEvaluators != 0)
+                        //         return std::nullopt;
+                        //     if (!ImHexApi::Provider::isValid())
+                        //         return std::nullopt;
+                        //
+                        //     std::optional<ImColor> color;
+                        //     for (const auto &pattern : runtime.getPatternsAtAddress(address, id)) {
+                        //         if (pattern->getVisibility() != pl::ptrn::Visibility::Visible)
+                        //             continue;
+                        //
+                        //         if (color.has_value())
+                        //             color = ImAlphaBlendColors(*color, pattern->getColor());
+                        //         else
+                        //             color = pattern->getColor();
+                        //     }
+                        //
+                        //     return color;
+                        // });
+                        //
+                        // auto patternProvider = ImHexApi::Provider::get();
+                        //
+                        //
+                        // m_sectionWindowDrawer[patternProvider] = [this, id, patternProvider, dataProvider, hexEditor, patternDrawer = std::make_shared<ui::PatternDrawer>(), &runtime] mutable {
+                        //     hexEditor.setProvider(dataProvider.get());
+                        //     hexEditor.draw(480_scaled);
+                        //     patternDrawer->setSelectionCallback([&](const pl::ptrn::Pattern *pattern) {
+                        //         hexEditor.setSelection(Region { pattern->getOffset(), pattern->getSize() });
+                        //     });
+                        //
+                        //     const auto &patterns = [&, this] -> const auto& {
+                        //         if (patternProvider->isReadable() && *m_executionDone) {
+                        //             return runtime.getPatterns(id);
+                        //         } else {
+                        //             static const std::vector<std::shared_ptr<pl::ptrn::Pattern>> empty;
+                        //             return empty;
+                        //         }
+                        //     }();
+                        //
+                        //     if (*m_executionDone)
+                        //         patternDrawer->draw(patterns, &runtime, 150_scaled);
+                        // };
                     }
                     ImGui::SameLine();
                     if (ImGuiExt::DimmedIconButton(ICON_VS_SAVE_AS, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
@@ -1264,21 +1274,21 @@ namespace hex::plugin::builtin {
     }
 
     void ViewPatternEditor::drawAlwaysVisibleContent() {
-        auto provider = ImHexApi::Provider::get();
+        auto parentProvider = ImHexApi::Provider::getParent();
 
-        auto open = m_sectionWindowDrawer.contains(provider);
-        if (open) {
-            ImGui::SetNextWindowSize(scaled(ImVec2(600, 700)), ImGuiCond_Appearing);
-            if (ImGui::Begin("hex.builtin.view.pattern_editor.section_popup"_lang, &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-                m_sectionWindowDrawer[provider]();
-            }
-            ImGui::End();
-        }
-
-        if (!open && m_sectionWindowDrawer.contains(provider)) {
-            ImHexApi::HexEditor::setSelection(Region::Invalid());
-            m_sectionWindowDrawer.erase(provider);
-        }
+        // auto open = m_sectionWindowDrawer.contains(provider);
+        // if (open) {
+        //     ImGui::SetNextWindowSize(scaled(ImVec2(600, 700)), ImGuiCond_Appearing);
+        //     if (ImGui::Begin("hex.builtin.view.pattern_editor.section_popup"_lang, &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        //         m_sectionWindowDrawer[provider]();
+        //     }
+        //     ImGui::End();
+        // }
+        //
+        // if (!open && m_sectionWindowDrawer.contains(provider)) {
+        //     ImHexApi::HexEditor::setSelection(Region::Invalid());
+        //     m_sectionWindowDrawer.erase(provider);
+        // }
 
         if (!m_lastEvaluationProcessed) {
             if (!m_lastEvaluationResult) {
@@ -1324,14 +1334,14 @@ namespace hex::plugin::builtin {
         if (m_shouldAnalyze) {
             m_shouldAnalyze = false;
 
-            TaskManager::createBackgroundTask("Analyzing file content", [this, provider](auto &) {
+            TaskManager::createBackgroundTask("Analyzing file content", [this, parentProvider](auto &) {
                 if (!m_autoLoadPatterns)
                     return;
 
                 pl::PatternLanguage runtime;
-                ContentRegistry::PatternLanguage::configureRuntime(runtime, provider);
+                ContentRegistry::PatternLanguage::configureRuntime(runtime, parentProvider);
 
-                auto mimeType = magic::getMIMEType(provider, 0, 100_KiB, true);
+                auto mimeType = magic::getMIMEType(parentProvider, 0, 100_KiB, true);
 
                 bool foundCorrectType = false;
                 runtime.addPragma("MIME", [&mimeType, &foundCorrectType](const pl::PatternLanguage &runtime, const std::string &value) {
@@ -1348,7 +1358,7 @@ namespace hex::plugin::builtin {
                 });
 
                 // Format: [ AA BB CC DD ] @ 0x12345678
-                runtime.addPragma("magic", [provider, &foundCorrectType](pl::PatternLanguage &, const std::string &value) -> bool {
+                runtime.addPragma("magic", [parentProvider, &foundCorrectType](pl::PatternLanguage &, const std::string &value) -> bool {
                     const auto pattern = [value = value] mutable -> std::optional<BinaryPattern> {
                         value = wolv::util::trim(value);
 
@@ -1397,7 +1407,7 @@ namespace hex::plugin::builtin {
                         return false;
 
                     std::vector<u8> bytes(pattern->getSize());
-                    provider->read(*address, bytes.data(), bytes.size());
+                    parentProvider->read(*address, bytes.data(), bytes.size());
 
                     if (pattern->matches(bytes))
                         foundCorrectType = true;
@@ -1405,7 +1415,7 @@ namespace hex::plugin::builtin {
                     return true;
                 });
 
-                m_possiblePatternFiles.get(provider).clear();
+                m_possiblePatternFiles.get(parentProvider).clear();
 
                 std::error_code errorCode;
                 for (const auto &dir : fs::getDefaultPaths(fs::ImHexPath::Patterns)) {
@@ -1424,13 +1434,13 @@ namespace hex::plugin::builtin {
                         }
 
                         if (foundCorrectType)
-                            m_possiblePatternFiles.get(provider).push_back(entry.path());
+                            m_possiblePatternFiles.get(parentProvider).push_back(entry.path());
 
                         runtime.reset();
                     }
                 }
 
-                if (!m_possiblePatternFiles.get(provider).empty()) {
+                if (!m_possiblePatternFiles.get(parentProvider).empty()) {
                     PopupAcceptPattern::open(this);
                 }
             });
@@ -1550,7 +1560,13 @@ namespace hex::plugin::builtin {
     }
 
     void ViewPatternEditor::evaluatePattern(const std::string &code, prv::Provider *provider) {
-        EventPatternEvaluating::post();
+        EventPatternEvaluating::post(provider);
+
+        for (const auto childProvider : ImHexApi::Provider::getProviders())
+        {
+            if (childProvider->hasParent() && childProvider->getParent() == provider)
+                EventPatternEvaluating::post(provider);
+        }
 
         auto lock = std::scoped_lock(ContentRegistry::PatternLanguage::getRuntimeLock());
 
@@ -1568,6 +1584,7 @@ namespace hex::plugin::builtin {
 
         m_accessHistory = {};
         m_accessHistoryIndex = 0;
+        ContentRegistry::PatternLanguage::setSection(0, provider);
 
         EventHighlightingChanged::post();
 
@@ -1632,12 +1649,32 @@ namespace hex::plugin::builtin {
             });
 
             ON_SCOPE_EXIT {
+                auto sections = runtime.getSections();
                 *m_lastEvaluationOutVars = runtime.getOutVariables();
-                *m_sections              = runtime.getSections();
+                *m_sections              = sections;
 
                 m_runningEvaluators -= 1;
 
                 m_lastEvaluationProcessed = false;
+
+                for (const auto childProvider : ImHexApi::Provider::getProviders()) {
+                    if (childProvider->hasParent() && childProvider->getParent() == provider)
+                    {
+                        auto sectionId = ContentRegistry::PatternLanguage::getSection(childProvider);
+                        if (sectionId > 0 && sections.contains(sectionId))
+                        {
+                            if (auto memoryProvider = dynamic_cast<prv::MemoryProvider *>(childProvider))
+                            {
+                                auto section = sections.at(sectionId);
+                                memoryProvider->resizeRaw(section.data.size());
+                                memoryProvider->writeRaw(0, section.data.data(), section.data.size());
+                            }
+                        } else
+                        {
+                            childProvider->setParent(nullptr);
+                        }
+                    }
+                }
 
                 std::scoped_lock lock(m_logMutex);
                 m_console->emplace_back(
@@ -1653,8 +1690,16 @@ namespace hex::plugin::builtin {
                 *m_lastCompileError    = runtime.getCompileErrors();
             }
 
-            TaskManager::doLater([code] {
-                EventPatternExecuted::post(code);
+            TaskManager::doLater([provider, code] {
+                EventPatternExecuted::post(provider, code);
+
+                for (const auto childProvider : ImHexApi::Provider::getProviders())
+                {
+                    if (childProvider->hasParent() && childProvider->getParent() == provider)
+                    {
+                        EventPatternExecuted::post(childProvider, code);
+                    }
+                }
             });
         });
     }
@@ -1666,7 +1711,7 @@ namespace hex::plugin::builtin {
         });
 
         RequestLoadPatternLanguageFile::subscribe(this, [this](const std::fs::path &path) {
-            this->loadPatternFile(path, ImHexApi::Provider::get());
+            this->loadPatternFile(path, ImHexApi::Provider::getParent());
         });
 
         RequestRunPatternCode::subscribe(this, [this] {
@@ -1680,7 +1725,7 @@ namespace hex::plugin::builtin {
 
         RequestSetPatternLanguageCode::subscribe(this, [this](const std::string &code) {
             m_textEditor.SetText(code);
-            m_sourceCode.set(ImHexApi::Provider::get(), code);
+            m_sourceCode.set(ImHexApi::Provider::getParent(), code);
             m_hasUnevaluatedChanges = true;
         });
 
@@ -1692,6 +1737,7 @@ namespace hex::plugin::builtin {
         });
 
         EventProviderOpened::subscribe(this, [this](prv::Provider *provider) {
+            provider = provider->getParent();
             m_shouldAnalyze.get(provider) = true;
             m_envVarEntries->emplace_back(0, "", i128(0), EnvVarType::Integer);
 
@@ -1699,8 +1745,12 @@ namespace hex::plugin::builtin {
         });
 
         EventProviderChanged::subscribe(this, [this](prv::Provider *oldProvider, prv::Provider *newProvider) {
+            if (oldProvider != nullptr) oldProvider = oldProvider->getParent();
+            if (newProvider != nullptr) newProvider = newProvider->getParent();
+
             if (oldProvider != nullptr)
                 m_sourceCode.set(oldProvider, m_textEditor.GetText());
+
 
             if (newProvider != nullptr)
                 m_textEditor.SetText(m_sourceCode.get(newProvider));
@@ -1843,7 +1893,7 @@ namespace hex::plugin::builtin {
             std::optional<ImColor> color;
 
             if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
-                for (const auto &patternColor : runtime.getColorsAtAddress(address)) {
+                for (const auto &patternColor : runtime.getColorsAtAddress(address, ContentRegistry::PatternLanguage::getSection())) {
                     if (color.has_value())
                         color = ImAlphaBlendColors(*color, patternColor);
                     else
@@ -1860,7 +1910,7 @@ namespace hex::plugin::builtin {
             const auto &runtime = ContentRegistry::PatternLanguage::getRuntime();
 
             if (auto hoveredRegion = ImHexApi::HexEditor::getHoveredRegion(provider)) {
-                for (const auto &pattern : runtime.getPatternsAtAddress(hoveredRegion->getStartAddress())) {
+                for (const auto &pattern : runtime.getPatternsAtAddress(hoveredRegion->getStartAddress(), ContentRegistry::PatternLanguage::getSection())) {
                     const pl::ptrn::Pattern * checkPattern = pattern;
                     if (auto parent = checkPattern->getParent(); parent != nullptr)
                         checkPattern = parent;
@@ -1880,7 +1930,7 @@ namespace hex::plugin::builtin {
             if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
                 const auto &runtime = ContentRegistry::PatternLanguage::getRuntime();
 
-                auto patterns = runtime.getPatternsAtAddress(address);
+                auto patterns = runtime.getPatternsAtAddress(address, ContentRegistry::PatternLanguage::getSection());
                 if (!patterns.empty() && !std::ranges::all_of(patterns, [](const auto &pattern) { return pattern->getVisibility() == pl::ptrn::Visibility::Hidden; })) {
                     ImGui::BeginTooltip();
 
@@ -1912,11 +1962,12 @@ namespace hex::plugin::builtin {
             .basePath = "pattern_source_code.hexpat",
             .required = false,
             .load = [this](prv::Provider *provider, const std::fs::path &basePath, const Tar &tar) {
+                provider = provider->getParent();
                 const auto sourceCode = tar.readString(basePath);
 
                 m_sourceCode.set(provider, sourceCode);
 
-                if (provider == ImHexApi::Provider::get())
+                if (provider == ImHexApi::Provider::getParent())
                     m_textEditor.SetText(sourceCode);
 
                 m_hasUnevaluatedChanges = true;
@@ -1924,7 +1975,8 @@ namespace hex::plugin::builtin {
                 return true;
             },
             .store = [this](prv::Provider *provider, const std::fs::path &basePath, const Tar &tar) {
-                if (provider == ImHexApi::Provider::get())
+                provider = provider->getParent();
+                if (provider == ImHexApi::Provider::getParent())
                     m_sourceCode.set(provider, m_textEditor.GetText());
 
                 const auto &sourceCode = m_sourceCode.get(provider);
@@ -1973,6 +2025,7 @@ namespace hex::plugin::builtin {
 
         // Generate pattern code report
         ContentRegistry::Reports::addReportProvider([this](prv::Provider *provider) -> std::string {
+            provider = provider->getParent();
             const auto &patternCode = m_sourceCode.get(provider);
 
             if (wolv::util::trim(patternCode).empty())

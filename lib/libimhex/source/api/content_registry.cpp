@@ -551,7 +551,17 @@ namespace hex {
                 });
             };
 
-            return *runtime;
+            return runtime.get(ImHexApi::Provider::getParent());
+        }
+
+        static PerProvider<u64> providerSections;
+
+        u64 getSection(const prv::Provider *provider) {
+            return providerSections.get(provider == nullptr ? ImHexApi::Provider::get() : provider);
+        }
+
+        void setSection(const u64 section, const prv::Provider *provider) {
+            providerSections.set(section, provider);
         }
 
         std::mutex& getRuntimeLock() {
@@ -564,6 +574,7 @@ namespace hex {
             runtime.reset();
 
             if (provider != nullptr) {
+                provider = provider->getParent();
                 runtime.setDataSource(provider->getBaseAddress(), provider->getActualSize(),
                                       [provider](u64 offset, u8 *buffer, size_t size) {
                                           provider->read(offset, buffer, size);

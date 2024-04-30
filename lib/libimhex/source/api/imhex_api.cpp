@@ -287,6 +287,13 @@ namespace hex {
             return (*s_providers)[s_currentProvider].get();
         }
 
+        prv::Provider *getParent() {
+            if (!ImHexApi::Provider::isValid())
+                return nullptr;
+
+            return (*s_providers)[s_currentProvider].get()->getParent();
+        }
+
         std::vector<prv::Provider*> getProviders() {
             std::vector<prv::Provider*> result;
             result.reserve(s_providers->size());
@@ -329,6 +336,10 @@ namespace hex {
         }
 
         void markDirty() {
+            get()->markDirty();
+        }
+
+        void markParentDirty() {
             get()->markDirty();
         }
 

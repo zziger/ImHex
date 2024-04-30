@@ -25,11 +25,14 @@ namespace hex::prv {
 
 
     Provider::Provider() : m_undoRedoStack(this), m_id(s_idCounter++) {
-
+        EventProviderDeleted::subscribe(this, [this](prv::Provider *provider){
+            if (m_parent == provider) setParent(nullptr);
+        });
     }
 
     Provider::~Provider() {
         m_overlays.clear();
+        EventProviderDeleted::unsubscribe(this);
 
         if (auto selection = ImHexApi::HexEditor::getSelection(); selection.has_value() && selection->provider == this)
             EventRegionSelected::post(ImHexApi::HexEditor::ProviderRegion { { 0x00, 0x00 }, nullptr });

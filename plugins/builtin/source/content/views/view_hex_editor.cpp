@@ -1193,7 +1193,7 @@ namespace hex::plugin::builtin {
                                                     }
 
                                                     if (ImGui::MenuItem("hex.builtin.view.hex_editor.menu.edit.jump_to.curr_pattern"_lang, "", false, selection.has_value() && ContentRegistry::PatternLanguage::getRuntime().getCreatedPatternCount() > 0)) {
-                                                        auto patterns = ContentRegistry::PatternLanguage::getRuntime().getPatternsAtAddress(selection->getStartAddress());
+                                                        auto patterns = ContentRegistry::PatternLanguage::getRuntime().getPatternsAtAddress(selection->getStartAddress(), ContentRegistry::PatternLanguage::getSection());
 
                                                         if (!patterns.empty())
                                                             RequestJumpToPattern::post(patterns.front());
