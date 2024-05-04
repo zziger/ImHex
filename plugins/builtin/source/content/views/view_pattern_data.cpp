@@ -25,12 +25,12 @@ namespace hex::plugin::builtin {
                 drawer->enableRowColoring(m_rowColoring);
         });
 
-        EventPatternEvaluating::subscribe(this, [this]{
-            (*m_patternDrawer)->reset();
+        EventPatternEvaluating::subscribe(this, [this](const prv::Provider* provider){
+            m_patternDrawer.get(provider)->reset();
         });
 
-        EventPatternExecuted::subscribe(this, [this](auto){
-            (*m_patternDrawer)->reset();
+        EventPatternExecuted::subscribe(this, [this](const prv::Provider* provider, auto){
+            m_patternDrawer.get(provider)->reset();
         });
 
         RequestJumpToPattern::subscribe(this, [this](const pl::ptrn::Pattern *pattern) {
@@ -70,7 +70,8 @@ namespace hex::plugin::builtin {
                 } else {
                     // If the runtime has finished evaluating, draw the patterns
                     if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
-                        (*m_patternDrawer)->draw(runtime.getPatterns(), &runtime, height);
+                        auto section = ContentRegistry::PatternLanguage::getSection();
+                        (*m_patternDrawer)->draw(runtime.getPatterns(section), &runtime, height);
                     }
                 }
             }

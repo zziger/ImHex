@@ -451,6 +451,18 @@ namespace hex {
             pl::PatternLanguage& getRuntime();
 
             /**
+             * @brief Returns section of currently selected provider in the runtime
+             * @return Runtime
+             */
+            u64 getSection(const prv::Provider *provider = nullptr);
+
+            /**
+             * @brief Sets section of the specified provider
+             * @return Runtime
+             */
+            void setSection(u64 section, const prv::Provider *provider);
+
+            /**
              * @brief Provides access to the current provider's pattern language runtime's lock
              * @return Lock
              */

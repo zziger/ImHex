@@ -302,6 +302,12 @@ namespace hex {
             prv::Provider *get();
 
             /**
+             * @brief Gets the currently selected data provider's parent
+             * @return The currently selected data provider's parent, current provider if it has not parent, or nullptr is there is none current provider
+             */
+            prv::Provider *getParent();
+
+            /**
              * @brief Gets a list of all currently loaded data providers
              * @return The currently loaded data providers
              */
@@ -336,6 +342,11 @@ namespace hex {
              * @brief Marks the **currently selected** data provider as dirty
              */
             void markDirty();
+
+            /**
+             * @brief Marks the **currently selected** data provider's **parent** (or itself if no parent) as dirty
+             */
+            void markParentDirty();
 
             /**
              * @brief Marks **all data providers** as clean

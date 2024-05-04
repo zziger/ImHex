@@ -233,9 +233,15 @@ namespace hex::prv {
 
         [[nodiscard]] undo::Stack& getUndoStack() { return m_undoRedoStack; }
 
+        [[nodiscard]] virtual bool hasParent() { return m_parent != nullptr; }
+
+        [[nodiscard]] virtual Provider* getParent() { return m_parent == nullptr ? this : m_parent; }
+        virtual void setParent(Provider* parent) { m_parent = parent; }
+
     protected:
         u32 m_currPage    = 0;
         u64 m_baseAddress = 0;
+        Provider* m_parent = nullptr;
 
         undo::Stack m_undoRedoStack;
 
