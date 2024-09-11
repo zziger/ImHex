@@ -564,6 +564,28 @@ namespace hex {
             return functionName;
         }
 
+        static PerProvider<u64> s_selectedSection;
+
+        u64 getSelectedSection() {
+            if (s_selectedSection != 0) {
+                if (auto& runtime = getRuntime(); !runtime.getSections().contains(s_selectedSection)) {
+                    s_selectedSection = 0;
+                }
+            }
+
+            return s_selectedSection;
+        }
+
+        void setSelectedSection(u64 id) {
+            s_selectedSection = id;
+
+            if (id != 0) {
+                if (auto& runtime = getRuntime(); !runtime.getSections().contains(id)) {
+                    s_selectedSection = 0;
+                }
+            }
+        }
+
         pl::PatternLanguage& getRuntime() {
             static PerProvider<pl::PatternLanguage> runtime;
             AT_FIRST_TIME {

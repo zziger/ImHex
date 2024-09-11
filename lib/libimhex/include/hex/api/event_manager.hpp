@@ -250,6 +250,7 @@ namespace hex {
     EVENT_DEF(EventProviderClosed,  prv::Provider *);
     EVENT_DEF(EventProviderDeleted, prv::Provider *);
     EVENT_DEF(EventProviderSaved,   prv::Provider *);
+    EVENT_DEF(EventSectionChanged,  u64);
     EVENT_DEF(EventWindowInitialized);
     EVENT_DEF(EventWindowDeinitializing, GLFWwindow *);
     EVENT_DEF(EventBookmarkCreated, ImHexApi::Bookmarks::Entry&);

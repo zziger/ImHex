@@ -1285,7 +1285,7 @@ namespace hex::ui {
 
                 if (ImGui::MenuItem(name.c_str())) {
                     fs::openFileBrowser(fs::DialogMode::Save, { fs::ItemFilter(name, extension) }, [&](const std::fs::path &path) {
-                        auto result = formatter->format(*runtime);
+                        auto result = formatter->format(*runtime, ContentRegistry::PatternLanguage::getSelectedSection());
 
                         wolv::io::File output(path, wolv::io::File::Mode::Create);
                         output.writeVector(result);

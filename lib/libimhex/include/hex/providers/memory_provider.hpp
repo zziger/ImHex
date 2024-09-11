@@ -22,13 +22,15 @@ namespace hex::prv {
 
         [[nodiscard]] bool isAvailable()        const override { return true;           }
         [[nodiscard]] bool isReadable()         const override { return true;           }
-        [[nodiscard]] bool isWritable()         const override { return true;           }
+        [[nodiscard]] bool isWritable()         const override { return writable;           }
         [[nodiscard]] bool isResizable()        const override { return true;           }
         [[nodiscard]] bool isSavable()          const override { return m_name.empty(); }
         [[nodiscard]] bool isSavableAsRecent()  const override { return false;          }
 
         [[nodiscard]] bool open() override;
         void close() override { }
+
+        void setWritable(const bool writable) { this->writable = writable; }
 
         void readRaw(u64 offset, void *buffer, size_t size) override;
         void writeRaw(u64 offset, const void *buffer, size_t size) override;
@@ -45,6 +47,7 @@ namespace hex::prv {
     private:
         std::vector<u8> m_data;
         std::string m_name;
+        bool writable = true;
     };
 
 }

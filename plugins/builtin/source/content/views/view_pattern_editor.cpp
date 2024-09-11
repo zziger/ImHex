@@ -1090,14 +1090,32 @@ namespace hex::plugin::builtin {
 
     void ViewPatternEditor::drawSectionSelector(ImVec2 size, const std::map<u64, pl::api::Section> &sections) {
         auto &runtime = ContentRegistry::PatternLanguage::getRuntime();
+        auto *provider = ImHexApi::Provider::get();
+        auto selectedSection = ContentRegistry::PatternLanguage::getSelectedSection();
 
-        if (ImGui::BeginTable("##sections_table", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, size)) {
+        if (ImGui::BeginTable("##sections_table", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, size)) {
             ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 10_scaled);
             ImGui::TableSetupColumn("hex.ui.common.name"_lang, ImGuiTableColumnFlags_WidthStretch, 0.5F);
             ImGui::TableSetupColumn("hex.ui.common.size"_lang, ImGuiTableColumnFlags_WidthStretch, 0.5F);
             ImGui::TableSetupColumn("##button", ImGuiTableColumnFlags_WidthFixed, 50_scaled);
 
             ImGui::TableHeadersRow();
+
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                if (selectedSection == 0) ImGui::TextUnformatted(ICON_VS_CHECK);
+                ImGui::TableNextColumn();
+                ImGuiExt::TextFormatted("{}", provider->getName());
+                ImGui::TableNextColumn();
+                ImGuiExt::TextFormatted("{} | 0x{:02X}", hex::toByteString(provider->getSize()), provider->getSize());
+                ImGui::TableNextColumn();
+                if (ImGuiExt::DimmedIconButton(ICON_VS_OPEN_PREVIEW, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
+                    ContentRegistry::PatternLanguage::setSelectedSection(0);
+                    EventSectionChanged::post(0);
+                }
+            }
 
             if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
                 for (auto &[id, section] : sections) {
@@ -1108,57 +1126,18 @@ namespace hex::plugin::builtin {
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
+                    if (selectedSection == id) ImGui::TextUnformatted(ICON_VS_CHECK);
 
+                    ImGui::TableNextColumn();
                     ImGui::TextUnformatted(section.name.c_str());
+
                     ImGui::TableNextColumn();
                     ImGuiExt::TextFormatted("{} | 0x{:02X}", hex::toByteString(section.data.size()), section.data.size());
+
                     ImGui::TableNextColumn();
                     if (ImGuiExt::DimmedIconButton(ICON_VS_OPEN_PREVIEW, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
-                        auto dataProvider = std::make_shared<prv::MemoryProvider>(section.data);
-                        auto hexEditor = auto(m_sectionHexEditor);
-
-                        hexEditor.setBackgroundHighlightCallback([this, id, &runtime](u64 address, const u8 *, size_t) -> std::optional<color_t> {
-                            if (m_runningEvaluators != 0)
-                                return std::nullopt;
-                            if (!ImHexApi::Provider::isValid())
-                                return std::nullopt;
-
-                            std::optional<ImColor> color;
-                            for (const auto &pattern : runtime.getPatternsAtAddress(address, id)) {
-                                if (pattern->getVisibility() != pl::ptrn::Visibility::Visible)
-                                    continue;
-
-                                if (color.has_value())
-                                    color = ImAlphaBlendColors(*color, pattern->getColor());
-                                else
-                                    color = pattern->getColor();
-                            }
-
-                            return color;
-                        });
-
-                        auto patternProvider = ImHexApi::Provider::get();
-
-
-                        m_sectionWindowDrawer[patternProvider] = [this, id, patternProvider, dataProvider, hexEditor, patternDrawer = std::make_shared<ui::PatternDrawer>(), &runtime] mutable {
-                            hexEditor.setProvider(dataProvider.get());
-                            hexEditor.draw(480_scaled);
-                            patternDrawer->setSelectionCallback([&](const pl::ptrn::Pattern *pattern) {
-                                hexEditor.setSelection(Region { pattern->getOffset(), pattern->getSize() });
-                            });
-
-                            const auto &patterns = [&, this] -> const auto& {
-                                if (patternProvider->isReadable() && *m_executionDone) {
-                                    return runtime.getPatterns(id);
-                                } else {
-                                    static const std::vector<std::shared_ptr<pl::ptrn::Pattern>> empty;
-                                    return empty;
-                                }
-                            }();
-
-                            if (*m_executionDone)
-                                patternDrawer->draw(patterns, &runtime, 150_scaled);
-                        };
+                        ContentRegistry::PatternLanguage::setSelectedSection(id);
+                        EventSectionChanged::post(id);
                     }
                     ImGui::SetItemTooltip("%s", "hex.builtin.view.pattern_editor.sections.view"_lang.get());
 
@@ -1273,20 +1252,6 @@ namespace hex::plugin::builtin {
 
     void ViewPatternEditor::drawAlwaysVisibleContent() {
         auto provider = ImHexApi::Provider::get();
-
-        auto open = m_sectionWindowDrawer.contains(provider);
-        if (open) {
-            ImGui::SetNextWindowSize(scaled(ImVec2(600, 700)), ImGuiCond_Appearing);
-            if (ImGui::Begin("hex.builtin.view.pattern_editor.section_popup"_lang, &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-                m_sectionWindowDrawer[provider]();
-            }
-            ImGui::End();
-        }
-
-        if (!open && m_sectionWindowDrawer.contains(provider)) {
-            ImHexApi::HexEditor::setSelection(Region::Invalid());
-            m_sectionWindowDrawer.erase(provider);
-        }
 
         if (!m_lastEvaluationProcessed) {
             if (!m_lastEvaluationResult) {
@@ -1665,7 +1630,6 @@ namespace hex::plugin::builtin {
         m_console->clear();
         m_consoleNeedsUpdate = true;
 
-        m_sectionWindowDrawer.clear();
         m_consoleEditor.SetText("");
         m_virtualFiles->clear();
 
@@ -1947,7 +1911,7 @@ namespace hex::plugin::builtin {
             std::optional<ImColor> color;
 
             if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
-                for (const auto &patternColor : runtime.getColorsAtAddress(address)) {
+                for (const auto &patternColor : runtime.getColorsAtAddress(address, ContentRegistry::PatternLanguage::getSelectedSection())) {
                     if (color.has_value())
                         color = ImAlphaBlendColors(*color, patternColor);
                     else
@@ -1966,7 +1930,7 @@ namespace hex::plugin::builtin {
             const auto &runtime = ContentRegistry::PatternLanguage::getRuntime();
 
             const auto hoveredRegion = Region { address, size };
-            for (const auto &pattern : runtime.getPatternsAtAddress(hoveredRegion.getStartAddress())) {
+            for (const auto &pattern : runtime.getPatternsAtAddress(hoveredRegion.getStartAddress(), ContentRegistry::PatternLanguage::getSelectedSection())) {
                 const pl::ptrn::Pattern * checkPattern = pattern;
                 if (auto parent = checkPattern->getParent(); parent != nullptr)
                     checkPattern = parent;
@@ -1983,7 +1947,7 @@ namespace hex::plugin::builtin {
             if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
                 const auto &runtime = ContentRegistry::PatternLanguage::getRuntime();
 
-                auto patterns = runtime.getPatternsAtAddress(address);
+                auto patterns = runtime.getPatternsAtAddress(address, ContentRegistry::PatternLanguage::getSelectedSection());
                 if (!patterns.empty() && !std::ranges::all_of(patterns, [](const auto &pattern) { return pattern->getVisibility() == pl::ptrn::Visibility::Hidden; })) {
                     ImGui::BeginTooltip();
 

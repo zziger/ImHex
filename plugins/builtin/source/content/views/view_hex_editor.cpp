@@ -567,6 +567,7 @@ namespace hex::plugin::builtin {
         EventProviderChanged::unsubscribe(this);
         EventProviderOpened::unsubscribe(this);
         EventHighlightingChanged::unsubscribe(this);
+        EventSectionChanged::unsubscribe(this);
 
         ContentRegistry::Settings::write<int>("hex.builtin.setting.hex_editor", "hex.builtin.setting.hex_editor.bytes_per_row", m_hexEditor.getBytesPerRow());
     }
@@ -638,7 +639,7 @@ namespace hex::plugin::builtin {
     }
 
     void ViewHexEditor::drawContent() {
-        m_hexEditor.setProvider(ImHexApi::Provider::get());
+        m_hexEditor.setProvider(ImHexApi::Provider::getSection());
 
         m_hexEditor.draw();
 
@@ -977,6 +978,11 @@ namespace hex::plugin::builtin {
            m_backgroundHighlights->clear();
         });
 
+        EventSectionChanged::subscribe(this, [this]([[maybe_unused]] u64 newSection){
+           m_foregroundHighlights->clear();
+           m_backgroundHighlights->clear();
+        });
+
         ProjectFile::registerPerProviderHandler({
             .basePath = "custom_encoding.tbl",
             .required = false,
@@ -1287,7 +1293,7 @@ namespace hex::plugin::builtin {
                                                     }
 
                                                     if (ImGui::MenuItem("hex.builtin.view.hex_editor.menu.edit.jump_to.curr_pattern"_lang, "", false, selection.has_value() && ContentRegistry::PatternLanguage::getRuntime().getCreatedPatternCount() > 0)) {
-                                                        auto patterns = ContentRegistry::PatternLanguage::getRuntime().getPatternsAtAddress(selection->getStartAddress());
+                                                        auto patterns = ContentRegistry::PatternLanguage::getRuntime().getPatternsAtAddress(selection->getStartAddress(), ContentRegistry::PatternLanguage::getSelectedSection());
 
                                                         if (!patterns.empty())
                                                             RequestJumpToPattern::post(patterns.front());

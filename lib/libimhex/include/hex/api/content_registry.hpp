@@ -463,6 +463,17 @@ namespace hex {
             }
 
             /**
+             * @brief Returns current selected section id
+             * @return Current selected section id
+             */
+             u64 getSelectedSection();
+
+            /**
+             * @brief Sets current selected section id
+             */
+             void setSelectedSection(u64 id);
+
+            /**
              * @brief Provides access to the current provider's pattern language runtime
              * @return Runtime
              */

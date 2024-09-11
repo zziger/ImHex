@@ -171,7 +171,7 @@ namespace hex::plugin::builtin {
         }
 
         // Loop over patterns produced by the runtime
-        const auto &patterns = m_runtime.getPatterns();
+        const auto &patterns = m_runtime.getPatterns(ContentRegistry::PatternLanguage::getSelectedSection());
         for (const auto &pattern: patterns) {
             // Skip hidden patterns
             if (pattern->getVisibility() == pl::ptrn::Visibility::Hidden)

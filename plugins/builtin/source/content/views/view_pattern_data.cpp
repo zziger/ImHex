@@ -29,6 +29,10 @@ namespace hex::plugin::builtin {
             (*m_patternDrawer)->reset();
         });
 
+        EventSectionChanged::subscribe(this, [this]([[maybe_unused]] u64 newSection) {
+            (*m_patternDrawer)->reset();
+        });
+
         EventPatternExecuted::subscribe(this, [this](auto){
             (*m_patternDrawer)->reset();
         });
@@ -65,6 +69,7 @@ namespace hex::plugin::builtin {
     ViewPatternData::~ViewPatternData() {
         EventPatternEvaluating::unsubscribe(this);
         EventPatternExecuted::unsubscribe(this);
+        EventSectionChanged::unsubscribe(this);
     }
 
     void ViewPatternData::drawContent() {
@@ -81,7 +86,7 @@ namespace hex::plugin::builtin {
                 } else {
                     // If the runtime has finished evaluating, draw the patterns
                     if (TRY_LOCK(ContentRegistry::PatternLanguage::getRuntimeLock())) {
-                        (*m_patternDrawer)->draw(runtime.getPatterns(), &runtime, height);
+                        (*m_patternDrawer)->draw(runtime.getPatterns(ContentRegistry::PatternLanguage::getSelectedSection()), &runtime, height);
                     }
                 }
             }

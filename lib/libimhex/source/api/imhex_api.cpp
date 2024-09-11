@@ -17,6 +17,8 @@
 #include <set>
 #include <algorithm>
 #include <GLFW/glfw3.h>
+#include <hex/api/content_registry.hpp>
+#include <hex/providers/memory_provider.hpp>
 
 #if defined(OS_WINDOWS)
     #include <windows.h>
@@ -266,9 +268,15 @@ namespace hex {
 
     namespace ImHexApi::Provider {
 
+        struct SectionProvider {
+            prv::Provider* parentProvider;
+            u64 sectionId;
+            std::unique_ptr<prv::MemoryProvider> sectionProvider;
+        };
         static i64 s_currentProvider = -1;
         static AutoReset<std::vector<std::unique_ptr<prv::Provider>>> s_providers;
         static AutoReset<std::map<prv::Provider*, std::unique_ptr<prv::Provider>>> s_providersToRemove;
+        static AutoReset<std::optional<SectionProvider>> s_sectionProvider;
 
         namespace impl {
 
@@ -289,6 +297,36 @@ namespace hex {
                 return nullptr;
 
             return (*s_providers)[s_currentProvider].get();
+        }
+
+        prv::Provider* getSection() {
+            if (!ImHexApi::Provider::isValid())
+                return nullptr;
+
+            auto parent = get();
+            auto currentSectionId = ContentRegistry::PatternLanguage::getSelectedSection();
+
+            if (parent == nullptr || currentSectionId == 0) {
+                 s_sectionProvider = std::nullopt;
+                return parent;
+            }
+
+            if (!s_sectionProvider->has_value() || s_sectionProvider->value().parentProvider != parent || s_sectionProvider->value().sectionId != currentSectionId) {
+                auto& runtime = ContentRegistry::PatternLanguage::getRuntime();
+                auto section = runtime.getSections().at(currentSectionId);
+
+                auto newProvider = std::make_unique<prv::MemoryProvider>(section.data, fmt::format("Section: {}", section.name));
+                newProvider->setWritable(false);
+
+                s_sectionProvider = SectionProvider {
+                    .parentProvider = parent,
+                    .sectionId = currentSectionId,
+                    .sectionProvider = std::move(newProvider),
+                };
+            }
+
+            if (s_sectionProvider->has_value()) return s_sectionProvider->value().sectionProvider.get();
+            return nullptr;
         }
 
         std::vector<prv::Provider*> getProviders() {

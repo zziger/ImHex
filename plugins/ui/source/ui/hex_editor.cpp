@@ -1046,6 +1046,10 @@ namespace hex::ui {
                     if (m_mode == Mode::Insert) {
                         ImGui::TextUnformatted("[ INSERT ]");
                     }
+                    if (!ImHexApi::Provider::getSection()->getName().empty()) {
+                        ImGui::SameLine();
+                        ImGuiExt::TextFormatted("{}", ImHexApi::Provider::getSection()->getName());
+                    }
 
                     if (!m_footerCollapsed) {
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3_scaled);

@@ -229,8 +229,6 @@ namespace hex::plugin::builtin {
 
         bool m_autoLoadPatterns = true;
 
-        std::map<prv::Provider*, std::function<void()>> m_sectionWindowDrawer;
-
         ui::HexEditor m_sectionHexEditor;
 
         PatternSourceCode m_sourceCode;

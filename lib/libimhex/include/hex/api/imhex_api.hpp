@@ -304,6 +304,12 @@ namespace hex {
             prv::Provider *get();
 
             /**
+             * @brief Gets the currently selected data provider or a MemoryProvider representing selected section
+             * @return The currently selected data provider, selected section memory provider or nullptr is there is none
+             */
+            prv::Provider *getSection();
+
+            /**
              * @brief Gets a list of all currently loaded data providers
              * @return The currently loaded data providers
              */
