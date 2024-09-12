@@ -32,6 +32,7 @@
 #include <wolv/utils/lock.hpp>
 
 #include <content/global_actions.hpp>
+#include <pl/core/ast/ast_node_compound_statement.hpp>
 
 namespace hex::plugin::builtin {
 
@@ -1578,6 +1579,23 @@ namespace hex::plugin::builtin {
         }
     }
 
+
+    std::vector<pl::core::ast::ASTNode*> unpackCompoundStatements(const std::vector<std::shared_ptr<pl::core::ast::ASTNode>> &nodes) {
+        std::vector<pl::core::ast::ASTNode*> result;
+
+        for (const auto &node : nodes) {
+            if (auto compoundStatement = dynamic_cast<pl::core::ast::ASTNodeCompoundStatement*>(node.get()); compoundStatement != nullptr) {
+                auto unpacked = unpackCompoundStatements(compoundStatement->getStatements());
+
+                std::move(unpacked.begin(), unpacked.end(), std::back_inserter(result));
+            } else {
+                result.push_back(node.get());
+            }
+        }
+
+        return result;
+    }
+
     void ViewPatternEditor::parsePattern(const std::string &code, prv::Provider *provider) {
         m_runningParsers += 1;
 
@@ -1588,25 +1606,33 @@ namespace hex::plugin::builtin {
         auto oldPatternVariables = std::move(patternVariables);
 
         if (ast.has_value()) {
-            for (auto &node : *ast) {
-                if (const auto variableDecl = dynamic_cast<pl::core::ast::ASTNodeVariableDecl *>(node.get())) {
-                    const auto type = variableDecl->getType().get();
-                    if (type == nullptr) continue;
+            for (auto &topLevelNode : *ast) {
+                std::vector<pl::core::ast::ASTNode*> nodes;
+                if (auto compoundNode = dynamic_cast<pl::core::ast::ASTNodeCompoundStatement*>(topLevelNode.get()))
+                    nodes = unpackCompoundStatements(compoundNode->getStatements());
+                else
+                    nodes.push_back(topLevelNode.get());
 
-                    const auto builtinType = dynamic_cast<pl::core::ast::ASTNodeBuiltinType *>(type->getType().get());
-                    if (builtinType == nullptr)
-                        continue;
+                for (auto node : nodes) {
+                    if (const auto variableDecl = dynamic_cast<pl::core::ast::ASTNodeVariableDecl *>(node)) {
+                        const auto type = variableDecl->getType().get();
+                        if (type == nullptr) continue;
 
-                    const PatternVariable variable = {
-                        .inVariable  = variableDecl->isInVariable(),
-                        .outVariable = variableDecl->isOutVariable(),
-                        .type        = builtinType->getType(),
-                        .value       = oldPatternVariables.contains(variableDecl->getName()) ? oldPatternVariables[variableDecl->getName()].value : pl::core::Token::Literal()
-                    };
+                        const auto builtinType = dynamic_cast<pl::core::ast::ASTNodeBuiltinType *>(type->getType().get());
+                        if (builtinType == nullptr)
+                            continue;
 
-                    if (variable.inVariable || variable.outVariable) {
-                        if (!patternVariables.contains(variableDecl->getName()))
-                            patternVariables[variableDecl->getName()] = variable;
+                        const PatternVariable variable = {
+                            .inVariable  = variableDecl->isInVariable(),
+                            .outVariable = variableDecl->isOutVariable(),
+                            .type        = builtinType->getType(),
+                            .value       = oldPatternVariables.contains(variableDecl->getName()) ? oldPatternVariables[variableDecl->getName()].value : pl::core::Token::Literal()
+                        };
+
+                        if (variable.inVariable || variable.outVariable) {
+                            if (!patternVariables.contains(variableDecl->getName()))
+                                patternVariables[variableDecl->getName()] = variable;
+                        }
                     }
                 }
             }
